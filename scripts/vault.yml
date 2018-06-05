@@ -1,0 +1,83 @@
+---
+- name: Install Vault
+  hosts: servers
+  gather_facts: true
+  become: yes
+  vars:
+    vault_version: "0.9.2"
+    proxy_server_url: "http://proxy.true.th:80"
+    vault_user_password: "{{ vault_user_password }}"
+  remote_user: appadm
+  tasks:
+  - name: Create a vault user
+    user:
+     name: vault
+     password: "{{ vault_user_password }}"
+     state: present
+     group: eaas
+     update_password: always
+  - name: Unzip binary
+    unarchive:
+      src: https://releases.hashicorp.com/vault/{{vault_version}}/vault_{{vault_version}}_linux_amd64.zip
+      dest: /usr/bin
+      remote_src: yes
+    environment:
+      http_proxy: "{{ proxy_server_url }}"
+      https_proxy: "{{ proxy_server_url }}"
+  - name: Creates directory
+    file:
+      path: /data/vault
+      state: directory
+      owner: vault
+      group: eaas
+      mode: 0775
+  - name: copy cert files
+    synchronize:
+      src: "{{playbook_dir}}/files/vault_setup/certs"
+      dest: /data/vault
+      owner: no
+      group: no
+      rsync_opts:
+        - "--chmod=+rxw"
+        - "--owner=root"
+        - "--group=root"
+  - name: copy config scripts
+    synchronize:
+      src: "{{playbook_dir}}/files/etc/vault/"
+      dest: /data/vault
+      owner: no
+      group: no
+      rsync_opts:
+        - "--chmod=+rxw"
+        - "--owner=root"
+        - "--group=root"
+  - name: Put consul config files
+    copy:
+      content: |
+        backend "consul" {
+          path = "{{ansible_hostname}}"
+          address = "127.0.0.1:8500"
+          scheme = "http"
+        }
+      dest: /data/vault/consul.hcl
+      owner: vault
+      group: eaas
+  - name: change owner for vault folder
+    command: chown -R vault:eaas /data/vault
+  - name: Copy vault service file
+    synchronize:
+      src: "{{playbook_dir}}/files/etc/systemd/system/vault.service"
+      dest: /etc/systemd/system/vault.service
+      owner: no
+      group: no
+      rsync_opts:
+        - "--chmod=+rxw"
+        - "--owner=root"
+        - "--group=root"
+  - name: restart service vault service
+    systemd:
+      state: restarted
+      enabled: true
+      daemon_reload: yes
+      name: vault
+
